@@ -12,7 +12,10 @@ async function startServer(env = {}) {
   });
 
   const ready = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("server did not start in time")), 15000);
+    let errors = "";
+    child.stderr.on("data", chunk => { errors += chunk.toString(); });
+    const timer = setTimeout(() => { child.kill(); reject(new Error(`server did not start: ${errors}`)); }, 30000);
+    child.once("exit", () => { clearTimeout(timer); reject(new Error(`server exited before ready: ${errors}`)); });
     child.stdout.on("data", (chunk) => {
       if (chunk.toString().includes("listening on")) {
         clearTimeout(timer);
@@ -139,4 +142,17 @@ test("escapes Pinterest-supplied text rather than injecting it into the page", a
   } finally {
     await server.stop();
   }
+});
+
+test("HTTP never falls back to the configured server token; readiness works offline", async () => {
+  const server = await startServer({ PINTEREST_ACCESS_TOKEN: "server-only-secret" });
+  try {
+    assert.equal((await fetch(server.url("/ready"))).status, 200);
+    const response = await fetch(server.url("/mcp"), {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    assert.equal(response.status, 401);
+    assert.ok(!(await response.text()).includes("server-only-secret"));
+  } finally { await server.stop(); }
 });

@@ -5,6 +5,16 @@
 
 A [Model Context Protocol](https://modelcontextprotocol.io) server for the **Pinterest API v5**. It gives an AI assistant 35 typed tools over boards, pins, analytics, search and OAuth — runnable as a local stdio subprocess or as a hosted HTTP endpoint.
 
+## KDP publisher foundation
+
+This branch implements Phase 1 only. See [architecture](docs/architecture/ARCHITECTURE.md),
+[security review](docs/architecture/SECURITY_REVIEW.md), [roadmap](docs/roadmap/KDP_PUBLISHER_ROADMAP.md)
+and [validation report](docs/qa/PHASE1_REPORT.md). No scheduler or automatic publisher is enabled.
+HTTP binds to loopback by default and always requires a caller credential; server environment
+access tokens are for stdio only. Production requires PUBLIC_BASE_URL and a stable MCP_AUTH_SECRET.
+OAuth MCP result credentials are redacted; use local browser bootstrap to obtain tokens.
+These security defaults supersede older hosting/token examples below. Do not expose this phase publicly.
+
 ## What it can do
 
 | Area | Tools |

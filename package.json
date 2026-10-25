@@ -1,7 +1,7 @@
 {
   "name": "pinterest-mcp",
   "version": "0.3.0",
-  "description": "Model Context Protocol server for the Pinterest API v5 — boards, pins, analytics, search and OAuth, over stdio or HTTP.",
+  "description": "Model Context Protocol server for the Pinterest API v5 \u00e2\u20ac\u201d boards, pins, analytics, search and OAuth, over stdio or HTTP.",
   "license": "MIT",
   "author": "aymandakirgh",
   "type": "module",
@@ -23,7 +23,7 @@
     "start": "node dist/index.js",
     "start:http": "node dist/http.js",
     "dev": "tsc --watch",
-    "test": "node --test test/*.test.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

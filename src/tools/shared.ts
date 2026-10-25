@@ -1,3 +1,4 @@
+import { redact } from "../logging.js";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { PinterestApiError, type PinterestClient } from "../client.js";
@@ -20,15 +21,15 @@ export interface ToolResult {
   [key: string]: unknown;
 }
 
-/** Renders a successful payload as pretty JSON — the shape agents parse most reliably. */
+/** Renders a successful payload as pretty JSON â€” the shape agents parse most reliably. */
 export function ok(payload: unknown): ToolResult {
   return {
-    content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+    content: [{ type: "text", text: JSON.stringify(redact(payload), null, 2) }],
   };
 }
 
 export function fail(message: string): ToolResult {
-  return { content: [{ type: "text", text: message }], isError: true };
+  return { content: [{ type: "text", text: String(redact(message)) }], isError: true };
 }
 
 /**
@@ -41,10 +42,10 @@ export async function run(body: () => Promise<ToolResult>): Promise<ToolResult> 
   } catch (error) {
     if (error instanceof PinterestApiError) {
       return fail(
-        `${error.message}\n\n${hint(error)}\n\nFull response:\n${JSON.stringify(error.body, null, 2)}`,
+        `Pinterest API ${error.status}\n\n${hint(error)}`,
       );
     }
-    return fail(error instanceof Error ? error.message : String(error));
+    return fail(error instanceof Error && /^(No |Missing )/.test(error.message) ? error.message : "Request failed; inspect configuration and permissions.");
   }
 }
 
@@ -60,7 +61,7 @@ function hint(error: PinterestApiError): string {
     case 429:
       return "Rate limited by Pinterest after retries. Wait before retrying, or reduce page_size / request frequency.";
     default:
-      return "See the full response below for the Pinterest error code.";
+      return "Pinterest rejected the request. Inspect endpoint inputs and API availability.";
   }
 }
 

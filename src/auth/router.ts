@@ -78,7 +78,10 @@ function redirectUriAllowed(candidate: string, allowed: string[]): boolean {
     try {
       const known = new URL(entry);
       return (
-        (known.hostname === "127.0.0.1" || known.hostname === "localhost") &&
+        known.hostname === parsed.hostname &&
+        known.protocol === parsed.protocol &&
+        known.search === parsed.search &&
+        !parsed.hash && !parsed.username && !parsed.password &&
         known.pathname === parsed.pathname
       );
     } catch {
@@ -91,6 +94,8 @@ export function createAuthRouter(deps: AuthDeps): Router {
   const { config, cipher, issuer } = deps;
   const router = Router();
   const spentCodes = new SpentCodes();
+  const spentStates = new SpentCodes();
+  router.use((_req, res, next) => { res.set("Cache-Control", "no-store"); next(); });
 
   const configured = (): boolean => Boolean(config.appId && config.appSecret);
 
@@ -147,8 +152,9 @@ export function createAuthRouter(deps: AuthDeps): Router {
         return oauthError(res, 400, "invalid_redirect_uri", `not a valid URL: ${uri}`);
       }
       // Anything other than TLS or a loopback address would leak the code in transit.
+      if (parsed.username || parsed.password || parsed.hash) return oauthError(res, 400, "invalid_redirect_uri", "userinfo and fragments are forbidden");
       const loopback = parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost";
-      if (parsed.protocol !== "https:" && !loopback && parsed.protocol !== "http:") {
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
         return oauthError(res, 400, "invalid_redirect_uri", `unsupported scheme: ${parsed.protocol}`);
       }
       if (parsed.protocol === "http:" && !loopback) {
@@ -252,7 +258,7 @@ export function createAuthRouter(deps: AuthDeps): Router {
     >;
 
     const pending = state ? cipher.open<PendingAuthorization>("code", state) : null;
-    if (!pending) {
+    if (!pending || !spentStates.claim(state!, CODE_TTL_SECONDS)) {
       return oauthError(
         res,
         400,
@@ -303,7 +309,7 @@ export function createAuthRouter(deps: AuthDeps): Router {
       back.searchParams.set("error", "server_error");
       back.searchParams.set(
         "error_description",
-        caught instanceof Error ? caught.message : "Pinterest token exchange failed",
+        "Pinterest token exchange failed",
       );
       res.redirect(back.toString());
     }
@@ -366,7 +372,7 @@ export function createAuthRouter(deps: AuthDeps): Router {
           res,
           400,
           "invalid_grant",
-          caught instanceof Error ? caught.message : "refresh failed",
+          "Pinterest refresh failed",
         );
       }
     }
@@ -416,6 +422,8 @@ async function exchangeWithPinterest(
 ): Promise<PinterestTokens> {
   const credentials = Buffer.from(`${config.appId}:${config.appSecret}`).toString("base64");
   const response = await fetch(`${config.baseUrl.replace(/\/+$/, "")}/oauth/token`, {
+    redirect: "error",
+    signal: AbortSignal.timeout(30_000),
     method: "POST",
     headers: {
       Authorization: `Basic ${credentials}`,

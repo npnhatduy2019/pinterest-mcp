@@ -114,7 +114,10 @@ async function startServer(env = {}) {
   });
 
   await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("server did not start")), 15000);
+    let errors = "";
+    child.stderr.on("data", chunk => { errors += chunk.toString(); });
+    const timer = setTimeout(() => { child.kill(); reject(new Error(`server did not start: ${errors}`)); }, 30000);
+    child.once("exit", () => { clearTimeout(timer); reject(new Error(`server exited before ready: ${errors}`)); });
     child.stdout.on("data", (chunk) => {
       if (chunk.toString().includes("listening on")) {
         clearTimeout(timer);
@@ -264,7 +267,7 @@ test("completes the whole flow and serves MCP with the issued token", async () =
       })
     ).json();
 
-    // 2. Authorize — should bounce the user to Pinterest.
+    // 2. Authorize â€” should bounce the user to Pinterest.
     const verifier = randomBytes(32).toString("base64url");
     const challenge = createHash("sha256").update(verifier).digest("base64url");
     const authorize = await fetch(
@@ -391,4 +394,32 @@ test("a wrong PKCE verifier cannot redeem a code", async () => {
     await server.stop();
     await pinterest.stop();
   }
+});
+
+test("registration rejects loopback exotic schemes, userinfo and fragments", async () => {
+  const server = await startServer();
+  try {
+    for (const uri of ["ftp://localhost/callback", "https://owner:password@example.com/callback", "https://example.com/callback#fragment", "http://remote.example/callback"]) {
+      const response = await fetch(server.url("/register"), {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ redirect_uris: [uri] }),
+      });
+      assert.equal(response.status, 400, uri);
+    }
+  } finally { await server.stop(); }
+});
+
+test("loopback callback exceptions vary only the port", async () => {
+  const server = await startServer();
+  try {
+    const registration = await (await fetch(server.url("/register"), {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ redirect_uris: ["http://127.0.0.1:7777/callback?owner=1"] }),
+    })).json();
+    for (const uri of ["https://127.0.0.1:7777/callback?owner=1", "http://localhost:7777/callback?owner=1", "http://127.0.0.1:7777/callback?owner=2"]) {
+      const params = new URLSearchParams({ response_type: "code", client_id: registration.client_id,
+        redirect_uri: uri, code_challenge: "test-challenge", code_challenge_method: "S256" });
+      assert.equal((await fetch(server.url(`/authorize?${params}`), { redirect: "manual" })).status, 400);
+    }
+  } finally { await server.stop(); }
 });

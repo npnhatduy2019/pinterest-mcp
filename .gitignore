@@ -7,3 +7,11 @@ dist/
 npm-debug.log*
 coverage/
 *.tsbuildinfo
+
+.env.*
+!.env.example
+data/
+*.db
+*.db-*
+*.sqlite*
+secrets/
