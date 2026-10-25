@@ -39,8 +39,7 @@ function verifyState(state: string | undefined, secret: string): boolean {
 /** The redirect URI must match what is registered on the Pinterest app exactly. */
 function resolveRedirectUri(req: Request, config: ServerConfig): string {
   if (config.redirectUri) return config.redirectUri;
-  const configured = process.env.PUBLIC_BASE_URL;
-  const base = configured ?? `${req.protocol}://${req.get("host")}`;
+  const base = config.publicBaseUrl ?? `http://127.0.0.1:${config.port}`;
   return `${base.replace(/\/+$/, "")}/auth/callback`;
 }
 
@@ -99,6 +98,8 @@ function copyText(id, btn) {
 
 export function createOAuthRouter(config: ServerConfig): Router {
   const router = Router();
+  const pendingStates = new Map<string, number>();
+  router.use((_req, res, next) => { res.set({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" }); next(); });
 
   const missingCredentials = (req: Request, res: Response): void => {
     // Show the real callback URL for this deployment — it has to be pasted into
@@ -150,7 +151,11 @@ PINTEREST_APP_SECRET=...</pre>
     url.searchParams.set("redirect_uri", resolveRedirectUri(req, config));
     url.searchParams.set("response_type", "code");
     url.searchParams.set("scope", (scopes.length > 0 ? scopes : DEFAULT_SCOPES).join(","));
-    url.searchParams.set("state", signState(randomBytes(16).toString("base64url"), config.appSecret));
+    for (const [key, expiry] of pendingStates) if (expiry <= Date.now()) pendingStates.delete(key);
+    if (pendingStates.size >= 1000) { res.status(429).send("Too many pending authorizations"); return; }
+    const state = signState(randomBytes(16).toString("base64url"), config.appSecret);
+    pendingStates.set(state, Date.now() + 600_000);
+    url.searchParams.set("state", state);
 
     res.redirect(url.toString());
   });
@@ -193,7 +198,7 @@ PINTEREST_APP_SECRET=...</pre>
       return;
     }
 
-    if (!verifyState(typeof state === "string" ? state : undefined, config.appSecret)) {
+    if (typeof state !== "string" || !verifyState(state, config.appSecret) || (pendingStates.get(state) ?? 0) <= Date.now()) {
       res.status(400).send(
         page(
           "Invalid state",
@@ -205,6 +210,7 @@ PINTEREST_APP_SECRET=...</pre>
       return;
     }
 
+    pendingStates.delete(state as string);
     if (typeof code !== "string" || code.length === 0) {
       res.status(400).send(
         page("Missing code", `<h1>No authorization code</h1><p><a class="btn" href="/auth">Start over</a></p>`),
@@ -215,6 +221,8 @@ PINTEREST_APP_SECRET=...</pre>
     try {
       const credentials = Buffer.from(`${config.appId}:${config.appSecret}`).toString("base64");
       const response = await fetch(`${config.baseUrl.replace(/\/+$/, "")}/oauth/token`, {
+        redirect: "error",
+        signal: AbortSignal.timeout(30_000),
         method: "POST",
         headers: {
           Authorization: `Basic ${credentials}`,
@@ -235,7 +243,7 @@ PINTEREST_APP_SECRET=...</pre>
             "Token exchange failed",
             `<h1>Pinterest rejected the exchange</h1>
              <p class="sub">HTTP ${response.status}</p>
-             <div class="card"><pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre></div>
+             <div class="card"><pre>Pinterest token request failed</pre></div>
              <p class="warn">The usual cause is a redirect URI that does not exactly match the one registered on the app.</p>`,
           ),
         );
@@ -285,7 +293,7 @@ PINTEREST_APP_SECRET=...</pre>
         page(
           "Exchange failed",
           `<h1>Could not reach Pinterest</h1>
-           <div class="card"><pre>${escapeHtml(caught instanceof Error ? caught.message : String(caught))}</pre></div>
+           <div class="card"><pre>Pinterest token request failed</pre></div>
            <p><a class="btn" href="/auth">Try again</a></p>`,
         ),
       );

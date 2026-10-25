@@ -30,6 +30,7 @@ test("advertises the full tool surface with usable schemas", async () => {
   const client = await connect();
   try {
     const { tools } = await client.listTools();
+    assert.equal(tools.length, 35);
     const names = tools.map((tool) => tool.name);
 
     for (const expected of [

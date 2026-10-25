@@ -38,6 +38,8 @@ async function tokenRequest(
 ): Promise<unknown> {
   const credentials = Buffer.from(`${appId}:${appSecret}`).toString("base64");
   const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/oauth/token`, {
+    redirect: "error",
+    signal: AbortSignal.timeout(30_000),
     method: "POST",
     headers: {
       Authorization: `Basic ${credentials}`,
@@ -173,7 +175,7 @@ export function registerOAuthTools(config: OAuthConfig): ToolModule {
           return ok({
             ...(tokens as Record<string, unknown>),
             next_step:
-              "Set the access_token as PINTEREST_ACCESS_TOKEN and keep the refresh_token somewhere safe.",
+              "Credentials are redacted from MCP results. Use the local browser OAuth flow for credential setup.",
           });
         }),
     );

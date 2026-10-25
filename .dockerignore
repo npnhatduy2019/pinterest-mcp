@@ -5,3 +5,11 @@ dist
 test
 *.log
 .env
+
+.env.*
+!.env.example
+data
+secrets
+*.db
+*.db-*
+*.sqlite*

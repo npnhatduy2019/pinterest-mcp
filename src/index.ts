@@ -5,6 +5,7 @@
  * frames, so all diagnostics go to stderr.
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { log } from "./logging.js";
 import { loadConfig } from "./config.js";
 import { SERVER_NAME, SERVER_VERSION, buildServer } from "./server.js";
 
@@ -18,10 +19,10 @@ async function main(): Promise<void> {
   const tokenState = config.accessToken
     ? "access token loaded"
     : "no access token — only the OAuth tools will work until PINTEREST_ACCESS_TOKEN is set";
-  console.error(`${SERVER_NAME} v${SERVER_VERSION} ready on stdio (${tokenState})`);
+  log("info", "stdio_ready", { server: SERVER_NAME, version: SERVER_VERSION, tokenState });
 }
 
 main().catch((error) => {
-  console.error(`${SERVER_NAME} failed to start:`, error);
+  log("error", "startup_failed");
   process.exit(1);
 });

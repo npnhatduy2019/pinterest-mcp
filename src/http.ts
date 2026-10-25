@@ -5,7 +5,7 @@
  *
  * Stateless by design: every POST builds its own server, transport and Pinterest
  * client, then tears them down. That costs a little per call and buys the property
- * that matters for a shared deployment — one caller's token can never be reused to
+ * that matters for a shared deployment â€” one caller's token can never be reused to
  * serve another caller's request.
  *
  * Three ways to authenticate, in order of preference:
@@ -13,9 +13,11 @@
  *      caller's own Pinterest credential inside it. This is what lets many people
  *      connect their own accounts to one deployment.
  *   2. A raw Pinterest token passed directly, for scripts and single-user setups.
- *   3. PINTEREST_ACCESS_TOKEN on the server, for a private single-account instance.
+ * Server-side tokens are never used for unauthenticated HTTP requests.
  */
-import express, { type Request, type Response } from "express";
+import { log } from "./logging.js";
+import { checkDataDirectory } from "./storage.js";
+import express, { type Request, type Response, type NextFunction } from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createAuthRouter } from "./auth/router.js";
 import { TokenCipher, resolveAuthSecret } from "./auth/tokens.js";
@@ -24,7 +26,8 @@ import { createOAuthRouter } from "./oauth-web.js";
 import { SERVER_NAME, SERVER_VERSION, buildServer } from "./server.js";
 
 const config = loadConfig();
-const port = Number(process.env.PORT ?? 3000);
+const port = config.port;
+await checkDataDirectory(config.dataDir);
 
 const { secret, ephemeral } = resolveAuthSecret(config.authSecret);
 const cipher = new TokenCipher(secret);
@@ -32,9 +35,8 @@ const cipher = new TokenCipher(secret);
 /** Absolute origin of this deployment; OAuth metadata must advertise it exactly. */
 function issuer(req: Request): string {
   if (config.publicBaseUrl) return config.publicBaseUrl;
-  // Behind Railway/Heroku-style proxies the original scheme arrives in a header.
-  const proto = req.get("x-forwarded-proto")?.split(",")[0] ?? req.protocol;
-  return `${proto}://${req.get("host")}`;
+  // Never derive the authorization issuer from untrusted forwarding headers.
+  return `http://127.0.0.1:${port}`;
 }
 
 interface ResolvedAuth {
@@ -60,11 +62,16 @@ function resolveAuth(req: Request): ResolvedAuth {
     return { token: bearer };
   }
 
-  return config.accessToken ? { token: config.accessToken } : { rejected: true };
+  return { rejected: true };
 }
 
 const app = express();
-app.set("trust proxy", true);
+app.disable("x-powered-by");
+app.set("trust proxy", false);
+app.use((_req, res, next) => {
+  res.set({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" });
+  next();
+});
 app.use(express.json({ limit: "12mb" })); // base64 pin images travel in the body
 app.use(express.urlencoded({ extended: false })); // OAuth token endpoint posts a form
 
@@ -80,6 +87,16 @@ app.get("/health", (_req: Request, res: Response) => {
     // A restart invalidates issued tokens unless MCP_AUTH_SECRET is set.
     auth_secret_ephemeral: ephemeral,
   });
+});
+
+app.get("/ready", async (_req, res) => {
+  try {
+    await checkDataDirectory(config.dataDir);
+    res.json({ status: "ready", pinterest_connectivity: "unchecked", scheduler: "not_implemented" });
+  } catch {
+    log("error", "storage_not_ready");
+    res.status(503).json({ status: "not_ready" });
+  }
 });
 
 // OAuth 2.1 authorization server: metadata, registration, authorize, token.
@@ -128,7 +145,7 @@ app.post("/mcp", async (req: Request, res: Response) => {
     await server.connect(transport);
     await transport.handleRequest(req, res, req.body);
   } catch (error) {
-    console.error("Error handling MCP request:", error);
+    log("error", "mcp_request_failed");
     if (!res.headersSent) {
       res.status(500).json({
         jsonrpc: "2.0",
@@ -150,18 +167,14 @@ const methodNotAllowed = (_req: Request, res: Response): void => {
 app.get("/mcp", methodNotAllowed);
 app.delete("/mcp", methodNotAllowed);
 
-app.listen(port, () => {
-  console.log(`${SERVER_NAME} v${SERVER_VERSION} listening on :${port}`);
-  console.log(`  MCP endpoint: POST http://localhost:${port}/mcp`);
-  console.log(`  Health check: GET  http://localhost:${port}/health`);
-  if (config.appId && config.appSecret) {
-    console.log(`  OAuth login:  GET  http://localhost:${port}/auth`);
-  } else {
-    console.log("  OAuth disabled: set PINTEREST_APP_ID and PINTEREST_APP_SECRET to enable it");
-  }
-  if (ephemeral) {
-    console.warn(
-      "  WARNING: MCP_AUTH_SECRET is unset, so a random key is in use. Issued OAuth tokens will stop working when this process restarts.",
-    );
-  }
+// Express parser errors can include request fragments; never echo or log them.
+app.use((_error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  log("warn", "http_request_rejected");
+  if (!res.headersSent) res.status(400).json({ error: "Request rejected" });
+});
+
+app.listen(port, config.host, () => {
+  // Compatibility marker for existing process-based integration tests.
+  process.stdout.write(JSON.stringify({ event: "listening on", port, host: config.host }) + "\n");
+  log("info", "http_started", { port, host: config.host, ephemeral });
 });

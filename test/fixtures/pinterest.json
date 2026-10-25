@@ -1,0 +1,7 @@
+{
+  "account": {"id": "mock-owner", "username": "kdp-owner", "account_type": "BUSINESS"},
+  "boards": {"items": [{"id": "mock-board", "name": "Bedtime books"}]},
+  "pin": {"id": "mock-pin", "board_id": "mock-board", "title": "Read together tonight"},
+  "forbidden": {"code": 3, "message": "Application access is pending"},
+  "rateLimit": {"code": 8, "message": "Rate limit exceeded"}
+}

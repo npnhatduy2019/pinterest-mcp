@@ -97,19 +97,22 @@ export class PinterestClient {
       headers["Content-Type"] = "application/json";
     }
 
+    const safeToRetry = method === "GET";
     let lastError: unknown;
     for (let attempt = 1; attempt <= this.maxRetries; attempt += 1) {
       let response: Response;
       try {
         response = await this.fetchImpl(url, {
           method,
+          redirect: "error",
+          signal: AbortSignal.timeout(30_000),
           headers,
           body: options.body === undefined ? undefined : JSON.stringify(options.body),
         });
       } catch (error) {
         // Network-level failure: worth one more try, but surface it if it persists.
         lastError = error;
-        if (attempt === this.maxRetries) throw error;
+        if (!safeToRetry || attempt === this.maxRetries) throw new Error("Pinterest network request failed; outcome may be unknown");
         await delay(backoffMs(attempt));
         continue;
       }
@@ -120,7 +123,7 @@ export class PinterestClient {
 
       const body = await parseBody(response);
       const retryable = response.status === 429 || response.status >= 500;
-      if (retryable && attempt < this.maxRetries) {
+      if (safeToRetry && retryable && attempt < this.maxRetries) {
         await delay(retryAfterMs(response) ?? backoffMs(attempt));
         lastError = new PinterestApiError(response.status, path, body);
         continue;
@@ -158,7 +161,8 @@ function retryAfterMs(response: Response): number | undefined {
   if (!header) return undefined;
   const seconds = Number(header);
   // Cap the honoured wait so a hostile header can't stall a tool call indefinitely.
-  return Number.isFinite(seconds) ? Math.min(seconds, 30) * 1000 : undefined;
+  const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now();
+  return Number.isFinite(ms) ? Math.max(0, Math.min(ms, 30_000)) : undefined;
 }
 
 function backoffMs(attempt: number): number {
