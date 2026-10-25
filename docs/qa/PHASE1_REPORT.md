@@ -81,7 +81,7 @@ introducing a persistent scheduler or worker. ChatGPT is not the scheduler.
 
 ## Git delivery
 
-Implementation commit: 06ddd50. Draft PR against main:
+Implementation commit: 06ddd50. PR created as a draft against main:
 https://github.com/npnhatduy2019/pinterest-mcp/pull/1
 
 Verified Linux CI: https://github.com/npnhatduy2019/pinterest-mcp/actions/runs/40160967176
@@ -93,6 +93,11 @@ Verified Linux CI: https://github.com/npnhatduy2019/pinterest-mcp/actions/runs/4
 - CI annotations include action-runtime Node 20 deprecation and ubuntu-latest image
   migration notices; they did not fail the jobs.
 
-A documentation-only follow-up commit records these actual results. No merge.
+Documentation-only follow-up commits record these actual results on the feature branch.
+During final verification, GitHub reported PR #1 MERGED by account npnhatduy2019 at
+2026-10-25T04:12:35Z, merge commit d3788f7bcf9483241a191e3377bec52122ac3075.
+The agent did not issue a merge command. The merged PR head was 06ddd50; later QA
+report updates remain on the feature branch and were not part of that merge.
+No further main-branch changes or additional PR were made.
 The implementation is validated in Linux CI, while the documented security/dependency
 limitations still prevent treating Phase 1 as a production-ready auto publisher.
